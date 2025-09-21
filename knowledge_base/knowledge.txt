@@ -1,0 +1,47 @@
+# Healthcare Web Application Knowledge Base
+
+## Products
+- Customers can browse healthcare products by categories such as Medicines, Wellness, Fitness, and Personal Care.
+- Each product page contains details like name, description, price, dosage (if applicable), manufacturer, and availability.
+- Customers can add products to the cart and proceed to checkout.
+
+## Accounts
+- A registered account is required to place an order.
+- Customers can update their profile information, addresses, and payment methods.
+- Password reset can be done via the "Forgot Password" link on the login page.
+- Order history is available under the "My Orders" section.
+
+## Orders
+- Customers can place orders by adding products to the cart and completing payment.
+- Order confirmation is sent by email and can be seen under "My Orders".
+- Orders can be canceled within 24 hours if they have not been shipped.
+- Order status updates include: Processing → Packed → Shipped → Delivered.
+
+## Shipments
+- Shipments are managed under the Order Module.
+- Customers can track shipment details in the "My Orders" → "Shipment Summary" page.
+- Shipping usually takes 3–7 business days depending on the location.
+- Express delivery option is available for select locations.
+
+## Returns
+- Returns page can be found inside the Order Module under "Order → Returns".
+- Returns are allowed within 7 days of delivery for defective or damaged products.
+- Customers must provide the reason for return and choose either a replacement or refund.
+- Return pickup is scheduled by the logistics partner.
+
+## Invoices
+- Invoices are automatically generated once an order is confirmed.
+- Customers can download invoices in PDF format from "My Orders → Invoice".
+- Invoices include order number, billing details, product details, tax, and total amount.
+- GST-compliant invoices are provided for all orders.
+
+## Payments
+- Accepted payment methods include Credit Card, Debit Card, UPI, Net Banking, and Cash on Delivery (COD).
+- Refunds are processed within 5–7 working days for prepaid orders.
+- COD refunds are processed via bank transfer.
+
+## Customer Support
+- For issues related to products, orders, shipments, or payments, customers can raise a ticket via "Help & Support".
+- Support is available 24/7 via chat and email.
+- FAQs are available under the "Help Center".
+

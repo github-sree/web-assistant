@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SRE Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600&family=Poppins:wght@600;700&display=swap"
+          rel="stylesheet">
+    <style>
+        body {
+          font-family: 'Nunito', sans-serif;
+          background-color: #f9f9fb;
+          margin: 0;
+          padding: 0;
+          height: 100vh;
+          display: flex;
+          flex-direction: column;
+        }
+        h2 {
+          font-family: 'Poppins', sans-serif;
+          color: #2c3e50;
+          text-align: center;
+          margin: 15px 0;
+        }
+        #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
+        .message { max-width: 70%; margin: 8px 0; padding: 10px 14px; border-radius: 12px; line-height: 1.4; font-size: 1em; }
+        .user { align-self: flex-end; background-color: #cccccc; color: black; border-bottom-right-radius: 0; }
+        .assistant { align-self: flex-start; background-color: #fefefe; color: #000000; border-bottom-left-radius: 0; }
+        #input-area { display: flex; padding: 12px; border-top: 1px solid #ccc; background-color: white; }
+        #query { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; outline: none; font-size: 1em; }
+        button { margin-left: 10px; padding: 10px 16px; border: none; border-radius: 8px; background-color: #747474; color: white; cursor: pointer; font-size: 1em; }
+        button:hover { background-color: white; color: black; }
+        .loading-dots { display: inline-block; font-size: 18px; letter-spacing: 2px; }
+        .loading-dots span { animation: blink 1.5s infinite; }
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
+        .feedback { margin-top: 6px; font-size: 0.9em; color: #555; display:flex; align-items:center; gap:8px; }
+        .feedback a { margin-right: 8px; text-decoration: none; cursor: pointer; font-size: 1.2em; color: inherit; }
+        .feedback a.disabled { opacity: 0.4; pointer-events: none; }
+        .intent-options { margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
+        .intent-options a { font-size:0.9em; color:#0066cc; text-decoration:none; cursor:pointer; padding:4px 6px; border-radius:4px; background:#f2f7ff; }
+        .intent-options a:hover { background:#e6f0ff; }
+        .feedback-note { font-size:0.85em; color:#2a7f2a; margin-left:8px; }
+        #controls { padding: 10px; border-top: 1px solid #ccc; background-color: #f1f1f1; text-align: center; }
+    </style>
+</head>
+<body>
+<h2>SRE Web Assistant</h2>
+
+<div id="chat"></div>
+
+<div id="input-area">
+    <input type="text" id="query" placeholder="Ask a question (In more detail, specify time rage if know about the issue)..."/>
+    <button id="send">Send</button>
+</div>
+
+<!-- Controls for adaptive learning -->
+<div id="controls">
+    <button onclick="applyFeedback()">Apply Feedback</button>
+    <button onclick="trainModel()">Train Model</button>
+</div>
+
+<script>
+/**
+ * Full chat UI with robust feedback handling:
+ * - avoids duplicate option appends
+ * - disables feedback after selection
+ * - uses classifier top-intents as "predicted intent"
+ *
+ * Assumes backend endpoints:
+ *  POST /assistant      -> streaming LLM response (body is stream)
+ *  POST /top-intents    -> returns JSON { top_intents: [...], top_probs: [...] }
+ *  POST /feedback       -> accepts FormData { query, predicted_intent, correct_intent }
+ */
+
+const chat = document.getElementById("chat");
+const queryInput = document.getElementById("query");
+const sendButton = document.getElementById("send");
+
+/** Helper to safely create a message node */
+function addMessageNode(text, sender) {
+  const div = document.createElement("div");
+  div.className = "message " + sender;
+  div.innerText = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+/** Show loading bubble (returns the element) */
+function addLoadingMessage() {
+  const div = document.createElement("div");
+  div.className = "message assistant";
+  const loader = document.createElement("div");
+  loader.className = "loading-dots";
+  const span1 = document.createElement("span"); span1.textContent = "Thinking";
+  const span2 = document.createElement("span"); span2.textContent = ".";
+  const span3 = document.createElement("span"); span3.textContent = ".";
+  const span4 = document.createElement("span"); span4.textContent = ".";
+  loader.appendChild(span1);
+  loader.appendChild(span2);
+  loader.appendChild(span3);
+  loader.appendChild(span4);
+  div.appendChild(loader);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+/** Fetch top intents for a query (returns {top_intents, top_probs}) */
+async function fetchTopIntents(query, n = 3) {
+  const form = new URLSearchParams();
+  form.append("query", query);
+  form.append("n", String(n));
+  const res = await fetch("/top-intents", { method: "POST", body: form });
+  if (!res.ok) return { top_intents: [], top_probs: [] };
+  return await res.json();
+}
+
+/** Main send function */
+async function sendMessage() {
+  const query = queryInput.value.trim();
+  if (!query) return;
+  // show user message
+  addMessageNode(query, "user");
+  queryInput.value = "";
+
+  // show assistant loading
+  const assistantMsg = addLoadingMessage();
+
+  // start assistant streaming
+  try {
+    const formData = new FormData();
+    formData.append("query", query);
+    const res = await fetch("/assistant", { method: "POST", body: formData });
+
+    // if backend returned a non-stream JSON error (e.g., low confidence), handle it
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.body) {
+      // no body (error)
+      const txt = await res.text();
+      assistantMsg.innerText = txt || "[No response]";
+      return;
+    }
+
+    // Stream reader
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let firstChunk = true;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      if (firstChunk) {
+        assistantMsg.innerText = "";
+        firstChunk = false;
+      }
+      buffer += chunk;
+      // update displayed assistant text progressively
+      assistantMsg.innerText = buffer;
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    // When streaming finished, get top intents to identify predicted intent
+    const topData = await fetchTopIntents(query, 3);
+    const topIntents = topData.top_intents || [];
+    const predictedIntent = topIntents.length ? topIntents[0] : "unknown";
+
+    // Build feedback block (inline, under the same message)
+    // If fb block already exists for this assistantMsg, don't create another
+    // We mark assistantMsg._feedbackAdded to avoid duplicates
+    if (assistantMsg._feedbackAdded) {
+      return;
+    }
+    assistantMsg._feedbackAdded = true;
+
+    const fbDiv = document.createElement("div");
+    fbDiv.className = "feedback";
+
+    // Create 👍 link (confirm)
+    const correctLink = document.createElement("a");
+    correctLink.href = "#";
+    correctLink.textContent = "👍";
+    correctLink.title = "Mark as correct";
+    correctLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      // disable links immediately to prevent duplicates
+      disableFeedbackLinks(fbDiv);
+      // send feedback where predicted == correct
+      await sendFeedback(query, predictedIntent, predictedIntent);
+      showFeedbackNote(fbDiv, "Thanks — marked correct");
+    });
+
+    // Create 👎 link (open options)
+    const wrongLink = document.createElement("a");
+    wrongLink.href = "#";
+    wrongLink.textContent = "👎";
+    wrongLink.title = "Mark as wrong / choose correct intent";
+    wrongLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      // prevent adding options multiple times
+      if (assistantMsg._optionsShown) return;
+      assistantMsg._optionsShown = true;
+      // fetch top intents and show inline options
+      const data = topData.top_intents && topData.top_intents.length ? topData : await fetchTopIntents(query, 5);
+      renderIntentOptions(data.top_intents || [], fbDiv, query, predictedIntent);
+    });
+
+    fbDiv.appendChild(correctLink);
+    fbDiv.appendChild(wrongLink);
+    assistantMsg.appendChild(fbDiv);
+    chat.scrollTop = chat.scrollHeight;
+
+  } catch (err) {
+    assistantMsg.innerText = "[Error fetching assistant response]";
+    console.error(err);
+  }
+}
+
+/** Render inline intent options under fbDiv (prevents duplicates) */
+function renderIntentOptions(intents, parentFbDiv, query, predictedIntent) {
+  // check existing options
+  if (parentFbDiv.querySelector(".intent-options")) return;
+
+  const optionsWrap = document.createElement("div");
+  optionsWrap.className = "intent-options";
+
+  // label
+  const label = document.createElement("span");
+  label.textContent = "Select correct intent:";
+  label.style.marginRight = "8px";
+  optionsWrap.appendChild(label);
+
+  // add each intent as an inline link
+  intents.forEach(intent => {
+    const a = document.createElement("a");
+    a.href = "#";
+    a.textContent = intent;
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      // disable all links in this feedback block immediately
+      disableFeedbackLinks(parentFbDiv);
+      // send feedback (predictedIntent from classifier, correctIntent = chosen)
+      await sendFeedback(query, predictedIntent, intent);
+      showFeedbackNote(parentFbDiv, `Thanks — corrected to "${intent}"`);
+    });
+    optionsWrap.appendChild(a);
+  });
+
+  parentFbDiv.appendChild(optionsWrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/** Disable all clickable links inside a feedback block to avoid duplicate clicks */
+function disableFeedbackLinks(fbDiv) {
+  const links = fbDiv.querySelectorAll("a");
+  links.forEach(link => {
+    link.classList.add("disabled");
+    link.style.pointerEvents = "none";
+  });
+}
+
+/** Show a small note (inline) that feedback was recorded */
+function showFeedbackNote(fbDiv, text) {
+  let note = fbDiv.querySelector(".feedback-note");
+  if (!note) {
+    note = document.createElement("span");
+    note.className = "feedback-note";
+    fbDiv.appendChild(note);
+  }
+  note.textContent = text;
+}
+
+/** Send feedback to backend */
+async function sendFeedback(query, predictedIntent, correctIntent) {
+  try {
+    const form = new FormData();
+    form.append("query", query);
+    form.append("predicted_intent", predictedIntent);
+    form.append("correct_intent", correctIntent);
+    const res = await fetch("/feedback", { method: "POST", body: form });
+    if (!res.ok) {
+      console.error("Feedback error", await res.text());
+      return;
+    }
+    // optionally handle response JSON if needed
+    return await res.json();
+  } catch (err) {
+    console.error("Error sending feedback:", err);
+  }
+}
+
+/** Admin controls */
+async function applyFeedback() {
+  const res = await fetch("/apply-feedback", { method: "POST" });
+  const data = await res.json();
+  alert("Apply Feedback Result: " + JSON.stringify(data));
+}
+
+async function trainModel() {
+  const res = await fetch("/train", { method: "POST" });
+  const data = await res.json();
+  alert("Training Result: " + JSON.stringify(data));
+}
+
+/** Bind UI */
+sendButton.onclick = sendMessage;
+queryInput.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
+</script>
+</body>
+</html>

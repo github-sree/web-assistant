@@ -1,0 +1,25 @@
+query,label
+"I forgot my password, how do I reset it?",account_recovery
+Please help me change my password,account_recovery
+I cannot log in to my account,account_login
+My account is locked after multiple attempts,account_login
+How do I update my email address?,account_update
+I want to change my phone number linked to my account,account_update
+Why was I charged twice this month?,billing_issue
+My payment failed but money got deducted,billing_issue
+How do I update my billing address?,billing_update
+Can I get a refund for my last transaction?,refund_request
+I was promised cashback but didn’t receive it,refund_request
+Where can I see my transaction history?,billing_info
+The app keeps crashing on startup,technical_issue
+I am facing error code 500 when making payment,technical_issue
+"Website is very slow, not loading properly",technical_issue
+Do you support international payments?,product_info
+Can I use UPI for payment?,product_info
+How do I contact customer support?,general_info
+What are your working hours?,general_info
+Is there a live chat option available?,general_info
+Cancel my subscription immediately,subscription_cancel
+I want to upgrade my current plan,subscription_upgrade
+How can I pause my subscription?,subscription_pause
+"After multiple login attemps, my account getting locked, how to recover this?",account_recovery
